@@ -23,8 +23,9 @@ Key settings:
 
 - `WorkingDirectory` — project root.
 - `CODE_MAP_HOST` / `CODE_MAP_PORT` — bind `127.0.0.1:18765`.
+- `CODE_MAP_DEFAULT_WORKSPACE` — optional default workspace, currently `/home/hevin/Developer/company/WMS` in the installed unit.
+- `CODE_MAP_DATA_DIR` — `~/.local/share/code-map` for persisted settings, projects, and file indexes.
 - `CODE_MAP_FRONTEND_DIR` — absolute path to `frontend/dist`.
-- `CODE_MAP_DATA_DIR` — `~/.local/share/code-map` for future persistent data.
 - `CODE_MAP_ENABLE_WRITE_ACTIONS=false` — write toggles disabled until explicitly enabled.
 - `Restart=on-failure`, `RestartSec=2`, `NoNewPrivileges=true`.
 - `WantedBy=default.target`; linger is enabled so the service starts at boot.
@@ -65,6 +66,5 @@ curl -I http://127.0.0.1:18765/      # should return index.html
 
 ## Notes
 
-- Runtime settings are in-memory and reset on service restart. Persistence is
-  a planned Phase 1 task (see `docs/roadmap.md`).
+- Runtime settings and project indexes are persisted under `CODE_MAP_DATA_DIR`.
 - Logs go to journald (no separate log file), consistent with `sql-workbench`.

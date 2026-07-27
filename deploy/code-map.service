@@ -10,6 +10,7 @@ Environment=CODE_MAP_HOST=127.0.0.1
 Environment=CODE_MAP_PORT=18765
 Environment=CODE_MAP_FRONTEND_DIR=/home/hevin/Developer/tools/code-map/frontend/dist
 Environment=CODE_MAP_DATA_DIR=/home/hevin/.local/share/code-map
+Environment=CODE_MAP_DEFAULT_WORKSPACE=/home/hevin/Developer/company/WMS
 Environment=CODE_MAP_ENABLE_WRITE_ACTIONS=false
 ExecStart=/home/hevin/Developer/tools/code-map/backend/target/release/code-map-backend
 Restart=on-failure

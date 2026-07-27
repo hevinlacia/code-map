@@ -29,5 +29,5 @@ pub async fn put_settings(
         payload.auto_refresh_enabled = false;
     }
 
-    Ok(Json(state.replace_runtime(payload)))
+    Ok(Json(state.replace_runtime(payload)?))
 }

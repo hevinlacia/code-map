@@ -11,6 +11,7 @@
     "build": "npm --prefix frontend run build && cargo build --manifest-path backend/Cargo.toml",
     "release": "npm --prefix frontend run build && cargo build --release --manifest-path backend/Cargo.toml",
     "deploy": "npm run release && systemctl --user restart code-map",
+    "query": "./scripts/code-map-query.sh",
     "status": "systemctl --user status code-map --no-pager",
     "logs": "journalctl --user -u code-map -n 200 --no-pager",
     "check": "npm --prefix frontend run build && cargo fmt --manifest-path backend/Cargo.toml -- --check && cargo test --manifest-path backend/Cargo.toml"

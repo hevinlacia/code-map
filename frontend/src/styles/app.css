@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -97,9 +98,15 @@ input {
   font-size: 28px;
 }
 
-.card {
-  padding: 26px;
-  margin-bottom: 24px;
+.two-column {
+  display: grid;
+  grid-template-columns: 0.75fr 1.25fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.compact-card {
+  height: calc(100% - 24px);
 }
 
 .card-header {
@@ -133,6 +140,49 @@ input {
 .secondary {
   color: #2c3a58;
   background: #e9edf8;
+}
+
+.small {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+.project-form,
+.query-form {
+  display: grid;
+  gap: 14px;
+}
+
+.project-form label,
+.query-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #2c354c;
+  font-weight: 700;
+}
+
+.project-form input,
+.query-form input,
+.query-form select {
+  width: 100%;
+  border: 1px solid #d8deed;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.query-form {
+  grid-template-columns: 1.1fr 2fr 0.45fr auto;
+  align-items: end;
+}
+
+.query-input {
+  min-width: 0;
+}
+
+.narrow-input {
+  min-width: 92px;
 }
 
 .settings-grid {

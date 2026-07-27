@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let addr = config.socket_addr()?;
-    let router = app::build_router(config.clone());
+    let router = app::build_router(config.clone())?;
 
     let listener = TcpListener::bind(addr)
         .await

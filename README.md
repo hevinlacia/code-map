@@ -87,12 +87,32 @@ npm run logs     # journalctl --user -u code-map
 
 ## Current Status
 
-This is an initial scaffold. The UI can edit runtime settings and display backend state. Real code indexing and graph query features are intentionally not implemented yet.
+This is now a working MVP. The app can persist projects/settings, scan a repository into a file index, and query keywords against indexed paths and text lines.
+
+Current capabilities:
+
+- Add a local repository path from the UI.
+- Persist projects and runtime settings under `CODE_MAP_DATA_DIR`.
+- Scan repositories and multi-repo workspaces while preserving Git repo boundaries.
+- Extract heuristic symbols: classes/interfaces/enums, Controller routes, MQ topics/tags/groups, MQ components, Feign/Dubbo references, Mapper hints, DB tables, frontend API calls, and frontend permission strings.
+- Extract heuristic relationships: MQ publish/consume, Feign/Dubbo references, SQL table read/write, and frontend API calls.
+- Query keywords, endpoint fragments, config keys, class names, and file path fragments.
+- Return compact summary lines, candidate files, repo-qualified paths, symbols, relationships, scores, reasons, and line snippets.
+- Use the CLI helper for agent workflows:
+
+```bash
+# ranked candidate files (compact JSON for agent ingestion)
+./scripts/code-map-query.sh query ShipmentUploadMq --json --max-results 8
+
+# impact query: who consumes a topic / who reads+writes a table
+./scripts/code-map-query.sh neighbors wms-shipment-upload-topic --json
+./scripts/code-map-query.sh neighbors shipment_header --json
+```
 
 ## Next Milestones
 
-1. Add persistent config storage under `CODE_MAP_DATA_DIR`.
-2. Add repository scanner for files, languages, packages, and symbols.
-3. Add relationship extraction for imports, routes, MQ listeners, jobs, and config keys.
-4. Add `/api/query` endpoint that returns compact, evidence-backed navigation summaries.
-5. Add agent CLI wrapper for `code-map query "business keyword"`.
+1. Add symbol extraction for classes, functions, routes, listeners, jobs, and config keys.
+2. Add relationship extraction for imports, calls, API routes, MQ producers/consumers, and DB references.
+3. Add verified exploration notes so agents can persist known call chains.
+4. Add delete/re-scan controls, query history, and index freshness indicators in the UI.
+5. Add JSON output mode to the CLI helper for direct agent ingestion.

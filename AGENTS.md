@@ -18,6 +18,7 @@ This project is an agent-oriented code map tool under `/home/hevin/Developer/too
 - Architecture docs: `docs/architecture.md`
 - Deployment docs: `docs/deployment.md`
 - Config docs: `docs/config.md`
+- CLI helper: `scripts/code-map-query.sh`
 
 ## Commands
 
@@ -28,6 +29,8 @@ This project is an agent-oriented code map tool under `/home/hevin/Developer/too
 - Deploy (release build + restart service): `npm run deploy`
 - Service status: `npm run status` or `systemctl --user status code-map`
 - Service logs: `npm run logs` or `journalctl --user -u code-map -f`
+- Agent query helper: `./scripts/code-map-query.sh query <term> --json` or `./scripts/code-map-query.sh neighbors <entity> --json`
+- Agent impact query: `./scripts/code-map-query.sh neighbors <topic|table|feign> --json`
 - Build all (debug): `npm run build`
 - Check all: `npm run check`
 - Backend format: `cargo fmt --manifest-path backend/Cargo.toml`
