@@ -1,0 +1,91 @@
+.env.example
+  0a26009b0a99e009 11-13
+frontend/src/App.tsx
+  0a26009b0a99e009 3,7,9-10,12,16,18,26-27,30-32,45-50,74-134,146-147,159-179,181-188
+docs/testing.md
+  0a26009b0a99e009 17,19,22-23,26-31,33,35-40,42-61,64-65
+docs/deployment.md
+  0a26009b0a99e009 26-27,69
+AGENTS.md
+  0a26009b0a99e009 21,32-33
+deploy/code-map.service
+  0a26009b0a99e009 13
+README.md
+  0a26009b0a99e009 90-110,114-118
+backend/src/app.rs
+  0a26009b0a99e009 10,12,17,23
+frontend/src/styles/insights.css
+  0a26009b0a99e009 1-22
+frontend/src/api/client.ts
+  0a26009b0a99e009 19-21,26-84,96-103,127-145
+frontend/src/styles/query.css
+  0a26009b0a99e009 1-126
+backend/src/routes/notes.rs
+  0a26009b0a99e009 1-29,31-90
+backend/src/routes/query.rs
+  0a26009b0a99e009 1-47
+scripts/code-map-query.sh
+  0a26009b0a99e009 2-15
+scripts/code_map_query.py
+  0a26009b0a99e009 1-266
+backend/src/features/mod.rs
+  0a26009b0a99e009 1
+backend/src/features/notes.rs
+  0a26009b0a99e009 1-66
+backend/src/error.rs
+  0a26009b0a99e009 32-39,49-56
+backend/src/routes/projects.rs
+  0a26009b0a99e009 1-7,10-13,17-21,23,27,32-44,47-69,72-78,80-84
+backend/src/main.rs
+  0a26009b0a99e009 12
+frontend/src/components/ProjectForm.tsx
+  0a26009b0a99e009 1-52
+backend/src/state.rs
+  0a26009b0a99e009 1-5,7,10-14,20-21,24,46-60,62-69,76-151,153-159
+backend/src/routes/mod.rs
+  0a26009b0a99e009 1-2,4,9-10,12,27-30
+docs/roadmap.md
+  0a26009b0a99e009 1,3,5,7,9,12-16,18,20-24,26,28-32,34,36-38,40,43-45
+docs/architecture.md
+  0a26009b0a99e009 12,17,29-32,40-43,46-56,61-65
+docs/config.md
+  0a26009b0a99e009 11,41-48
+backend/src/routes/neighbors.rs
+  0a26009b0a99e009 1-36
+backend/src/routes/settings.rs
+  0a26009b0a99e009 32
+frontend/src/main.tsx
+  0a26009b0a99e009 5-6
+package.json
+  0a26009b0a99e009 14
+docs/api.md
+  0a26009b0a99e009 3,5-6,26,28,34,40-43,45,47-68,72-73,77-79,81-85,87-99,103-148,152,154-159,161-166,168,170-174,177-182,185,187-207,209-218,222-223,227,229-240,243-250,252-254
+frontend/src/components/QueryPanel.tsx
+  0a26009b0a99e009 1-150
+backend/src/features/projects/mod.rs
+  0a26009b0a99e009 1-7,11-44,52-54,59-96,103-207,214-216,219-349,351-568,570-757,759-880,882-894,896-918,920-947,949-966,968-977,979-989,991-998,1000-1010,1012-1019,1021-1039,1041-1048,1050-1062,1064-1114,1116-1123,1125-1129,1132,1134-1160,1162-1171,1173-1180,1182-1193,1195-1214,1216-1279,1281-1374,1376-1378,1381-1518,1520-1626,1628-1924,1926-1929,1932-1935,1937-2011
+frontend/src/styles/app.css
+  0a26009b0a99e009 21-22,101-109,145-185
+frontend/src/components/ProjectList.tsx
+  0a26009b0a99e009 5-8,11-17,27-61,65-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "99d59bfb197985969fd6fad8a0006a747e4ac268",
+  "prompts": {
+    "0a26009b0a99e009": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019fa146-1c42-7474-b151-d7c1659c5ac0",
+        "model": "glm-latest-auto"
+      },
+      "human_author": "hevinlacia",
+      "messages": [],
+      "total_additions": 3869,
+      "total_deletions": 613,
+      "accepted_lines": 3686,
+      "overriden_lines": 39
+    }
+  }
+}
