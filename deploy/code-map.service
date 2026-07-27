@@ -1,0 +1,20 @@
+[Unit]
+Description=Code Map agent-oriented repository navigation service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hevin/Developer/tools/code-map
+Environment=CODE_MAP_HOST=127.0.0.1
+Environment=CODE_MAP_PORT=18765
+Environment=CODE_MAP_FRONTEND_DIR=/home/hevin/Developer/tools/code-map/frontend/dist
+Environment=CODE_MAP_DATA_DIR=/home/hevin/.local/share/code-map
+Environment=CODE_MAP_ENABLE_WRITE_ACTIONS=false
+ExecStart=/home/hevin/Developer/tools/code-map/backend/target/release/code-map-backend
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,18 @@
+{
+  "name": "code-map",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-oriented code map workspace",
+  "packageManager": "npm@12.0.1",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "web": "npm --prefix frontend run dev",
+    "api": "cargo run --manifest-path backend/Cargo.toml",
+    "build": "npm --prefix frontend run build && cargo build --manifest-path backend/Cargo.toml",
+    "release": "npm --prefix frontend run build && cargo build --release --manifest-path backend/Cargo.toml",
+    "deploy": "npm run release && systemctl --user restart code-map",
+    "status": "systemctl --user status code-map --no-pager",
+    "logs": "journalctl --user -u code-map -n 200 --no-pager",
+    "check": "npm --prefix frontend run build && cargo fmt --manifest-path backend/Cargo.toml -- --check && cargo test --manifest-path backend/Cargo.toml"
+  }
+}
