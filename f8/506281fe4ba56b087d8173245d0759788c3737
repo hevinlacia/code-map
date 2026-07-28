@@ -1,0 +1,25 @@
+frontend/src/styles/app.css
+  e3e49d259576a602 41-44,47,54-58,113,115-116,120,133-135,141-142,192,251,276-277,308-367
+frontend/src/styles/query.css
+  e3e49d259576a602 72,76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f8506281fe4ba56b087d8173245d0759788c3737",
+  "prompts": {
+    "e3e49d259576a602": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019fa7df-b9a1-7c8d-a25b-bf6b1074feef",
+        "model": "openai-gpt-5.5-hevin"
+      },
+      "human_author": "hevinlacia",
+      "messages": [],
+      "total_additions": 87,
+      "total_deletions": 5,
+      "accepted_lines": 87,
+      "overriden_lines": 0
+    }
+  }
+}
