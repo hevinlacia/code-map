@@ -38,12 +38,22 @@ select {
   box-shadow: 0 18px 45px rgba(28, 43, 80, 0.08);
 }
 
+.card {
+  padding: 24px;
+}
+
 .hero {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 32px;
   margin-bottom: 24px;
+}
+
+.hero .secondary {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .hero h1,
@@ -100,13 +110,14 @@ select {
 
 .two-column {
   display: grid;
-  grid-template-columns: 0.75fr 1.25fr;
+  grid-template-columns: minmax(300px, 0.75fr) minmax(0, 1.25fr);
   gap: 24px;
-  align-items: start;
+  align-items: stretch;
+  margin-bottom: 24px;
 }
 
 .compact-card {
-  height: calc(100% - 24px);
+  height: 100%;
 }
 
 .card-header {
@@ -119,11 +130,16 @@ select {
 
 .primary,
 .secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 999px;
   padding: 10px 16px;
   cursor: pointer;
   font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .primary {
@@ -173,7 +189,7 @@ select {
 }
 
 .query-form {
-  grid-template-columns: 1.1fr 2fr 0.45fr auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr) minmax(96px, 0.45fr) auto;
   align-items: end;
 }
 
@@ -232,6 +248,7 @@ select {
 
 .project-list {
   display: grid;
+  min-width: 0;
   gap: 12px;
 }
 
@@ -256,6 +273,8 @@ select {
 .project-stats {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
   color: #667188;
   font-size: 13px;
@@ -285,4 +304,65 @@ select {
   padding: 14px 16px;
   color: #9f1d1d;
   background: #fff0f0;
+}
+
+.shell > .card {
+  margin-bottom: 24px;
+}
+
+.shell > .card:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+  body {
+    min-width: 0;
+  }
+
+  .shell {
+    width: min(100% - 32px, 1120px);
+    padding: 24px 0;
+  }
+
+  .hero,
+  .card {
+    padding: 20px;
+  }
+
+  .hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hero h1 {
+    font-size: 34px;
+  }
+
+  .status-grid,
+  .two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-grid,
+  .query-form {
+    grid-template-columns: 1fr;
+  }
+
+  .project-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .project-stats,
+  .project-main code {
+    max-width: 100%;
+  }
+
+  .project-stats {
+    justify-content: flex-start;
+  }
+
+  .query-form .primary {
+    width: 100%;
+  }
 }
