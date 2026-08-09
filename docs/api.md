@@ -39,8 +39,7 @@ Returns persisted runtime settings from `CODE_MAP_DATA_DIR/settings.json`.
 
 ## `PUT /api/settings`
 
-Updates and persists runtime settings. `auto_refresh_enabled` is forced to `false`
-unless `CODE_MAP_ENABLE_WRITE_ACTIONS=true`.
+Updates and persists runtime settings.
 
 ## `GET /api/projects`
 
@@ -58,7 +57,26 @@ Returns persisted project summaries from `CODE_MAP_DATA_DIR/projects.json`.
     "repo_count": 32,
     "total_bytes": 127051610,
     "symbol_count": 49309,
-    "relationship_count": 8218
+    "relationship_count": 8218,
+    "root_exists": true,
+    "worktree_project": false,
+    "current_git": {
+      "branch": "feature/example",
+      "head": "current-head-sha",
+      "dirty": false,
+      "repo_count": 32,
+      "dirty_repo_count": 0,
+      "fingerprint": "git-state-fingerprint"
+    },
+    "last_scanned_git": {
+      "branch": "feature/example",
+      "head": "indexed-head-sha",
+      "dirty": false,
+      "repo_count": 32,
+      "dirty_repo_count": 0,
+      "fingerprint": "git-state-fingerprint"
+    },
+    "index_stale": false
   }
 ]
 ```
@@ -67,22 +85,65 @@ Returns persisted project summaries from `CODE_MAP_DATA_DIR/projects.json`.
 
 Registers a local repository directory or multi-repo workspace.
 
+The project kind is inferred from the path: paths containing `/.worktrees/`
+are registered as `branch_overlay`; all others are `baseline`.
+
+- **Baseline** projects must be on their production branch. The expected
+  branch is auto-detected: `production` for paths under `/frontend/`, `master`
+  for paths under `/backend/` or `/pda/`. Override with `baseline_branch`.
+- **Branch overlay** projects require an existing indexed baseline project
+  for the parent repository. `base_project_id` is inferred from the worktree
+  path; pass it explicitly when multiple baselines exist.
+
 ```json
 {
-  "name": "WMS workspace",
-  "root_path": "/home/hevin/Developer/company/WMS"
+  "name": "WMS shipment-api baseline",
+  "root_path": "/home/hevin/Developer/company/WMS/backend/yl-cwhsea-wms-shipment-api",
+  "baseline_branch": "master"
 }
 ```
 
+Overlay creation (usually inferred from worktree path):
+
+```json
+{
+  "name": "WMS-1234 shipment retry",
+  "root_path": "/home/hevin/Developer/company/WMS/backend/yl-cwhsea-wms-shipment-api/.worktrees/callback"
+}
+```
+
+## `DELETE /api/projects/{id}`
+
+Removes a registered project index without deleting any source files. Also
+removes project-scoped notes and `constants-{project_id}.json`.
+
+`GET /api/projects` automatically prunes `branch_overlay` projects whose:
+- worktree directory no longer exists,
+- branch has been deleted (local or remote), or
+- `last_used_at` is older than 30 days.
+
+Baseline projects are never auto-pruned.
+
 ## `POST /api/projects/{id}/scan`
 
-Scans a registered repository or workspace into a lightweight index.
+Scans a registered project into a lightweight index.
 
-Query parameter `force=true` forces a full re-read and rebuilds the constant
-table (use after constant definitions change). Default is incremental: only
-changed files (by mtime+size) are re-read and re-extracted; unchanged files reuse
-cached symbols/relationships, and the constant table is loaded from
-`CODE_MAP_DATA_DIR/constants.json`.
+- **Baseline** projects: full scan of all files; constants are extracted and
+  stored in `CODE_MAP_DATA_DIR/constants-{project_id}.json`.
+- **Branch overlay** projects: scans the worktree, compares each file against
+  the baseline by content hash, and stores only changed/new files plus a list
+  of deleted paths (`overlay_deleted_paths`). Query and neighbors responses
+  materialize the overlay onto its baseline at query time.
+
+Query parameter `force=true` forces a full re-read and rebuilds the
+project-scoped constant table. Default is incremental: only changed files
+(by mtime+size) are re-read and re-extracted; unchanged files reuse cached
+symbols/relationships.
+
+After each scan, Code Map stores a Git snapshot (`branch`, `head`, dirty flag,
+repo counts, and a hashed fingerprint) on the project. Worktree/query responses
+compare the current Git snapshot to the last scanned snapshot and set
+`index_stale=true` when the index may be older than the current worktree.
 
 Current scanner behavior:
 
@@ -145,7 +206,46 @@ is set in settings.
         { "line": 61, "text": "public static final String WMS_SHIPMENT_UPLOAD_TOPIC = \"wms-shipment-upload-topic\";" }
       ]
     }
-  ]
+  ],
+  "index_freshness": {
+    "current_git": {
+      "branch": "feature/example",
+      "head": "current-head-sha",
+      "dirty": true,
+      "repo_count": 32,
+      "dirty_repo_count": 1,
+      "fingerprint": "current-git-state-hash"
+    },
+    "last_scanned_git": {
+      "branch": "feature/example",
+      "head": "indexed-head-sha",
+      "dirty": false,
+      "repo_count": 32,
+      "dirty_repo_count": 0,
+      "fingerprint": "indexed-git-state-hash"
+    },
+    "index_stale": true,
+    "auto_refreshed": false,
+    "warning": "Index is older than the current Git worktree; run scan or enable auto refresh before trusting results."
+  }
+}
+```
+
+When `branch_name` is provided, Code Map ignores `project_id` and builds a
+virtual requirement view across all indexed production baselines:
+
+- if an app has the named branch, Code Map uses `baseline + branch overlay`;
+- if an app does not have the named branch, Code Map uses the production baseline;
+- if the branch exists but no overlay/worktree exists, Code Map creates a managed
+  worktree under `CODE_MAP_DATA_DIR/worktrees/` when `CODE_MAP_ENABLE_WRITE_ACTIONS=true`;
+- the created/refreshed overlays update `last_used_at`, so unused branch indexes
+  are pruned after 30 days.
+
+```json
+{
+  "branch_name": "hevin.yang/feature/WMS-1234-example",
+  "query": "ShipmentUploadMq",
+  "max_results": 8
 }
 ```
 

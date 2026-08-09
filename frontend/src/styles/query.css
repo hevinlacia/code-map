@@ -53,6 +53,32 @@
   color: #36415c;
 }
 
+.freshness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 12px;
+}
+
+.freshness.ok {
+  color: #126d3a;
+  background: #e5f9ed;
+}
+
+.freshness.stale {
+  color: #8a4b00;
+  background: #fff1c7;
+}
+
+.freshness strong {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .result-list {
   display: grid;
   gap: 12px;

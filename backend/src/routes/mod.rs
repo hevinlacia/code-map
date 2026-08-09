@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 
 use crate::state::AppState;
@@ -24,6 +24,7 @@ pub fn api_router() -> Router<AppState> {
             "/projects",
             get(projects::list_projects).post(projects::create_project),
         )
+        .route("/projects/{id}", delete(projects::delete_project))
         .route("/projects/{id}/scan", post(projects::scan_project_by_id))
         .route("/query", post(query::query))
         .route("/neighbors", post(neighbors::neighbors))

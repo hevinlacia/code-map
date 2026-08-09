@@ -189,7 +189,7 @@ select {
 }
 
 .query-form {
-  grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr) minmax(96px, 0.45fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.5fr) minmax(240px, 1.2fr) minmax(96px, 0.45fr) auto;
   align-items: end;
 }
 
@@ -270,6 +270,13 @@ select {
   font-size: 12px;
 }
 
+.project-meta {
+  display: block;
+  margin-top: 6px;
+  color: #53617a;
+  font-size: 12px;
+}
+
 .project-stats {
   display: flex;
   align-items: center;
@@ -292,6 +299,21 @@ select {
   background: #def8e9;
 }
 
+.pill.warn {
+  color: #8a4b00;
+  background: #fff0c2;
+}
+
+.pill.danger {
+  color: #9f1d1d;
+  background: #ffe1e1;
+}
+
+.pill.info {
+  color: #4051d3;
+  background: #edf0ff;
+}
+
 .pill.muted {
   color: #6d7484;
   background: #eef1f7;
@@ -304,6 +326,12 @@ select {
   padding: 14px 16px;
   color: #9f1d1d;
   background: #fff0f0;
+}
+
+.danger-button {
+  color: #9f1d1d !important;
+  border-color: #f2b5b5 !important;
+  background: #fff5f5 !important;
 }
 
 .shell > .card {

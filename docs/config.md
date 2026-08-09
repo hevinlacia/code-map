@@ -11,7 +11,17 @@ Configuration is loaded from environment variables by `backend/src/config.rs`.
 | `CODE_MAP_DATA_DIR` | `./data` | Local persisted settings, projects, and generated index cache directory. |
 | `CODE_MAP_DEFAULT_WORKSPACE` | unset | Optional workspace path shown in the initial project list. |
 | `CODE_MAP_FRONTEND_DIR` | `./frontend/dist` | Directory of built frontend assets served by the backend at `/`. |
-| `CODE_MAP_ENABLE_WRITE_ACTIONS` | `false` | Enables settings that may later trigger filesystem writes or refresh tasks. |
+| `CODE_MAP_ENABLE_WRITE_ACTIONS` | `false` | Enables managed local worktree creation under `CODE_MAP_DATA_DIR/worktrees/` for branch-name virtual views. |
+
+`auto_refresh_enabled=true` is stored in runtime settings, not an environment
+variable. When enabled with `indexing_enabled=true`, query and neighbors requests
+run a default incremental scan before returning results for the selected project.
+
+`CODE_MAP_ENABLE_WRITE_ACTIONS=true` allows `branch_name` queries to create
+managed local worktrees under `CODE_MAP_DATA_DIR/worktrees/` when a requirement
+branch exists but no existing worktree/overlay project is registered. Source
+repositories are not deleted by Code Map; removing a project only removes the
+index record and project-scoped cache files.
 
 ## Local Setup
 
@@ -43,6 +53,7 @@ Persisted settings, project registrations, and generated indexes stay under `COD
 Current files:
 
 - `settings.json` - runtime settings.
-- `projects.json` - registered projects plus lightweight file index data.
-- `constants.json` - resolved constant map (rebuilt on full scan; reused on incremental scan).
+- `projects.json` - registered projects plus lightweight file index data and last scanned Git snapshots.
+- `constants-{project_id}.json` - project-scoped resolved constant maps (rebuilt on full scan; reused on incremental scan).
+- `worktrees/` - managed local worktrees created for branch-name virtual views when write actions are enabled.
 - `notes.json` - verified agent notes.

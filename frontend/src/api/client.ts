@@ -10,6 +10,25 @@ export type StatusResponse = RuntimeSettings & {
   service: string;
 };
 
+export type GitSnapshot = {
+  branch: string | null;
+  head: string | null;
+  dirty: boolean;
+  repo_count: number;
+  dirty_repo_count: number;
+  fingerprint: string | null;
+};
+
+export type IndexFreshness = {
+  current_git: GitSnapshot | null;
+  last_scanned_git: GitSnapshot | null;
+  index_stale: boolean;
+  auto_refreshed: boolean;
+  warning: string | null;
+};
+
+export type ProjectKind = 'baseline' | 'branch_overlay';
+
 export type ProjectSummary = {
   id: string;
   name: string;
@@ -21,15 +40,32 @@ export type ProjectSummary = {
   total_bytes: number;
   symbol_count: number;
   relationship_count: number;
+  root_exists: boolean;
+  worktree_project: boolean;
+  kind: ProjectKind;
+  base_project_id: string | null;
+  branch_name: string | null;
+  baseline_branch: string | null;
+  overlay_file_count: number;
+  overlay_deleted_count: number;
+  last_used_at: string | null;
+  current_git: GitSnapshot | null;
+  last_scanned_git: GitSnapshot | null;
+  index_stale: boolean;
 };
 
 export type CreateProjectInput = {
   name: string;
   root_path: string;
+  kind?: ProjectKind;
+  base_project_id?: string | null;
+  branch_name?: string | null;
+  baseline_branch?: string | null;
 };
 
 export type QueryInput = {
   project_id: string | null;
+  branch_name?: string | null;
   query: string;
   max_results?: number;
 };
@@ -80,6 +116,7 @@ export type QueryResponse = {
   result_count: number;
   summary_lines: string[];
   results: QueryResult[];
+  index_freshness: IndexFreshness;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -91,8 +128,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
 
+  const body = await response.text();
+
   if (!response.ok) {
-    const body = await response.text();
     let message = body;
     try {
       const parsed = JSON.parse(body) as { message?: string };
@@ -103,7 +141,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message || `Request failed: ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  if (!body) {
+    return undefined as T;
+  }
+
+  return JSON.parse(body) as T;
 }
 
 export function getStatus(): Promise<StatusResponse> {
@@ -135,6 +177,12 @@ export function createProject(input: CreateProjectInput): Promise<ProjectSummary
 export function scanProject(projectId: string): Promise<ProjectSummary> {
   return request<ProjectSummary>(`/api/projects/${projectId}/scan`, {
     method: 'POST',
+  });
+}
+
+export function deleteProject(projectId: string): Promise<void> {
+  return request<void>(`/api/projects/${projectId}`, {
+    method: 'DELETE',
   });
 }
 

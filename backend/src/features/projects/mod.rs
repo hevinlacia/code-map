@@ -1,7 +1,9 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::DefaultHasher},
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -33,6 +35,20 @@ pub struct ProjectRecord {
     pub relationship_count: u64,
     #[serde(default)]
     pub constant_fingerprint: Option<String>,
+    #[serde(default)]
+    pub last_scanned_git: Option<GitSnapshot>,
+    #[serde(default)]
+    pub kind: ProjectKind,
+    #[serde(default)]
+    pub base_project_id: Option<Uuid>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
+    #[serde(default)]
+    pub baseline_branch: Option<String>,
+    #[serde(default)]
+    pub overlay_deleted_paths: Vec<String>,
+    #[serde(default)]
+    pub last_used_at: Option<String>,
     pub files: Vec<FileRecord>,
     #[serde(default)]
     pub symbols: Vec<SymbolRecord>,
@@ -54,6 +70,57 @@ pub struct ProjectSummary {
     pub total_bytes: u64,
     pub symbol_count: u64,
     pub relationship_count: u64,
+    pub root_exists: bool,
+    pub worktree_project: bool,
+    pub kind: ProjectKind,
+    pub base_project_id: Option<Uuid>,
+    pub branch_name: Option<String>,
+    pub baseline_branch: Option<String>,
+    pub overlay_file_count: u64,
+    pub overlay_deleted_count: u64,
+    pub last_used_at: Option<String>,
+    pub current_git: Option<GitSnapshot>,
+    pub last_scanned_git: Option<GitSnapshot>,
+    pub index_stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectKind {
+    #[default]
+    Baseline,
+    BranchOverlay,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BranchOverlayInput {
+    pub base_project_id: Option<Uuid>,
+    pub baseline_branch: Option<String>,
+    pub branch_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BaselineInput {
+    pub baseline_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitSnapshot {
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub dirty: bool,
+    pub repo_count: u64,
+    pub dirty_repo_count: u64,
+    pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IndexFreshness {
+    pub current_git: Option<GitSnapshot>,
+    pub last_scanned_git: Option<GitSnapshot>,
+    pub index_stale: bool,
+    pub auto_refreshed: bool,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +136,8 @@ pub struct FileRecord {
     pub mtime: u64,
     pub line_count: Option<u64>,
     pub indexed_content: bool,
+    #[serde(default)]
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,11 +167,21 @@ pub struct RelationshipRecord {
 pub struct CreateProjectRequest {
     pub name: String,
     pub root_path: String,
+    #[serde(default)]
+    pub kind: Option<ProjectKind>,
+    #[serde(default)]
+    pub base_project_id: Option<Uuid>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
+    #[serde(default)]
+    pub baseline_branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct QueryRequest {
     pub project_id: Option<Uuid>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
     pub query: String,
     pub max_results: Option<usize>,
 }
@@ -117,6 +196,7 @@ pub struct QueryResponse {
     pub summary_lines: Vec<String>,
     pub results: Vec<QueryResult>,
     pub notes: Vec<NoteRecord>,
+    pub index_freshness: IndexFreshness,
 }
 
 #[derive(Debug, Serialize)]
@@ -141,6 +221,8 @@ pub struct LineSnippet {
 #[derive(Debug, Deserialize)]
 pub struct NeighborsRequest {
     pub project_id: Option<Uuid>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
     pub entity: String,
 }
 
@@ -155,6 +237,7 @@ pub struct NeighborsResponse {
     pub readers: Vec<NeighborHit>,
     pub writers: Vec<NeighborHit>,
     pub callers: Vec<NeighborHit>,
+    pub index_freshness: IndexFreshness,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -217,6 +300,13 @@ impl ProjectRecord {
             symbol_count: 0,
             relationship_count: 0,
             constant_fingerprint: None,
+            last_scanned_git: None,
+            kind: ProjectKind::Baseline,
+            base_project_id: None,
+            branch_name: None,
+            baseline_branch: None,
+            overlay_deleted_paths: Vec::new(),
+            last_used_at: None,
             files: Vec::new(),
             symbols: Vec::new(),
             relationships: Vec::new(),
@@ -239,6 +329,18 @@ impl From<&ProjectRecord> for ProjectSummary {
             total_bytes: project.total_bytes,
             symbol_count: project.symbol_count,
             relationship_count: project.relationship_count,
+            root_exists: Path::new(&project.root_path).is_dir(),
+            worktree_project: is_worktree_project_path(&project.root_path),
+            kind: project.kind.clone(),
+            base_project_id: project.base_project_id,
+            branch_name: project.branch_name.clone(),
+            baseline_branch: project.baseline_branch.clone(),
+            overlay_file_count: project.files.len() as u64,
+            overlay_deleted_count: project.overlay_deleted_paths.len() as u64,
+            last_used_at: project.last_used_at.clone(),
+            current_git: git_snapshot_for_root(Path::new(&project.root_path)),
+            last_scanned_git: project.last_scanned_git.clone(),
+            index_stale: build_index_freshness(project, false).index_stale,
         }
     }
 }
@@ -305,9 +407,10 @@ pub fn scan_project(
     let scan_roots = discover_scan_roots(&workspace_root)?;
     let repo_count = scan_roots.iter().filter(|root| root.repo.is_some()).count() as u64;
     let old_cache = build_old_cache(&project);
-    let incremental = !force && !old_cache.is_empty();
+    let constants_path = project_constants_file(data_dir, project.id);
+    let incremental = !force && !old_cache.is_empty() && constants_path.exists();
     let reused_constants = if incremental {
-        load_constants(data_dir).unwrap_or_default()
+        load_constants(&constants_path).unwrap_or_default()
     } else {
         HashMap::new()
     };
@@ -340,7 +443,7 @@ pub fn scan_project(
             }
         }
         project.constant_fingerprint = Some(constant_fingerprint(&map));
-        save_constants(data_dir, &map)?;
+        save_constants(&constants_path, &map)?;
         map
     };
 
@@ -380,12 +483,209 @@ pub fn scan_project(
     project.total_bytes = total_bytes;
     project.symbol_count = collector.symbols.len() as u64;
     project.relationship_count = collector.relationships.len() as u64;
+    project.last_scanned_git = git_snapshot_for_root(&workspace_root);
     project.files = collector.files;
     project.symbols = collector.symbols;
     project.relationships = collector.relationships;
     project.updated_at = now_unix_string();
 
     Ok(project)
+}
+
+pub fn scan_branch_overlay(
+    project: ProjectRecord,
+    base_project: &ProjectRecord,
+    data_dir: &Path,
+    force: bool,
+) -> AppResult<ProjectRecord> {
+    if base_project.kind != ProjectKind::Baseline || !base_project.indexed {
+        return Err(AppError::bad_request(
+            "branch overlay requires an indexed baseline project",
+        ));
+    }
+
+    let mut scanned = scan_project(project, data_dir, force)?;
+    let base_files = base_project
+        .files
+        .iter()
+        .map(|file| (file.relative_path.clone(), file.clone()))
+        .collect::<HashMap<_, _>>();
+    let scanned_paths = scanned
+        .files
+        .iter()
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let overlay_paths = scanned
+        .files
+        .iter()
+        .filter(|file| {
+            base_files
+                .get(&file.relative_path)
+                .is_none_or(|base_file| !same_file_content(base_file, file))
+        })
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+
+    let deleted_paths = base_project
+        .files
+        .iter()
+        .filter(|file| !scanned_paths.contains(&file.relative_path))
+        .map(|file| file.relative_path.clone())
+        .collect::<Vec<_>>();
+
+    scanned
+        .files
+        .retain(|file| overlay_paths.contains(&file.relative_path));
+    scanned
+        .symbols
+        .retain(|symbol| overlay_paths.contains(&symbol.relative_path));
+    scanned
+        .relationships
+        .retain(|relationship| overlay_paths.contains(&relationship.relative_path));
+    scanned.overlay_deleted_paths = deleted_paths;
+    scanned.file_count = effective_file_count(base_project, &scanned) as u64;
+    scanned.symbol_count = effective_symbol_count(base_project, &scanned) as u64;
+    scanned.relationship_count = effective_relationship_count(base_project, &scanned) as u64;
+    scanned.total_bytes = effective_total_bytes(base_project, &scanned);
+    scanned.last_used_at = Some(now_unix_string());
+
+    Ok(scanned)
+}
+
+pub fn materialize_project(
+    project: &ProjectRecord,
+    base_project: Option<&ProjectRecord>,
+) -> ProjectRecord {
+    if project.kind != ProjectKind::BranchOverlay {
+        return project.clone();
+    }
+
+    let Some(base_project) = base_project else {
+        return project.clone();
+    };
+
+    let deleted_paths = project
+        .overlay_deleted_paths
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let overlay_paths = project
+        .files
+        .iter()
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+
+    let mut materialized = project.clone();
+    materialized.files = base_project
+        .files
+        .iter()
+        .filter(|file| !deleted_paths.contains(&file.relative_path))
+        .filter(|file| !overlay_paths.contains(&file.relative_path))
+        .cloned()
+        .chain(project.files.iter().cloned())
+        .collect();
+    materialized.symbols = base_project
+        .symbols
+        .iter()
+        .filter(|symbol| !deleted_paths.contains(&symbol.relative_path))
+        .filter(|symbol| !overlay_paths.contains(&symbol.relative_path))
+        .cloned()
+        .chain(project.symbols.iter().cloned())
+        .collect();
+    materialized.relationships = base_project
+        .relationships
+        .iter()
+        .filter(|relationship| !deleted_paths.contains(&relationship.relative_path))
+        .filter(|relationship| !overlay_paths.contains(&relationship.relative_path))
+        .cloned()
+        .chain(project.relationships.iter().cloned())
+        .collect();
+    materialized.file_count = materialized.files.len() as u64;
+    materialized.symbol_count = materialized.symbols.len() as u64;
+    materialized.relationship_count = materialized.relationships.len() as u64;
+    materialized.total_bytes = materialized.files.iter().map(|file| file.size_bytes).sum();
+    materialized
+}
+
+fn same_file_content(left: &FileRecord, right: &FileRecord) -> bool {
+    match (&left.content_hash, &right.content_hash) {
+        (Some(left_hash), Some(right_hash)) => left_hash == right_hash,
+        _ => {
+            left.size_bytes == right.size_bytes
+                && left.line_count == right.line_count
+                && left.language == right.language
+                && left.indexed_content == right.indexed_content
+        }
+    }
+}
+
+fn effective_file_count(base_project: &ProjectRecord, overlay: &ProjectRecord) -> usize {
+    base_project.files.len() + overlay.files.len() - overlay.overlay_deleted_paths.len()
+}
+
+fn effective_symbol_count(base_project: &ProjectRecord, overlay: &ProjectRecord) -> usize {
+    let deleted_paths = overlay
+        .overlay_deleted_paths
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let overlay_paths = overlay
+        .files
+        .iter()
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+    base_project
+        .symbols
+        .iter()
+        .filter(|symbol| !deleted_paths.contains(&symbol.relative_path))
+        .filter(|symbol| !overlay_paths.contains(&symbol.relative_path))
+        .count()
+        + overlay.symbols.len()
+}
+
+fn effective_relationship_count(base_project: &ProjectRecord, overlay: &ProjectRecord) -> usize {
+    let deleted_paths = overlay
+        .overlay_deleted_paths
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let overlay_paths = overlay
+        .files
+        .iter()
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+    base_project
+        .relationships
+        .iter()
+        .filter(|relationship| !deleted_paths.contains(&relationship.relative_path))
+        .filter(|relationship| !overlay_paths.contains(&relationship.relative_path))
+        .count()
+        + overlay.relationships.len()
+}
+
+fn effective_total_bytes(base_project: &ProjectRecord, overlay: &ProjectRecord) -> u64 {
+    let deleted_paths = overlay
+        .overlay_deleted_paths
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let overlay_paths = overlay
+        .files
+        .iter()
+        .map(|file| file.relative_path.clone())
+        .collect::<std::collections::HashSet<_>>();
+    base_project
+        .files
+        .iter()
+        .filter(|file| !deleted_paths.contains(&file.relative_path))
+        .filter(|file| !overlay_paths.contains(&file.relative_path))
+        .map(|file| file.size_bytes)
+        .sum::<u64>()
+        + overlay
+            .files
+            .iter()
+            .map(|file| file.size_bytes)
+            .sum::<u64>()
 }
 
 pub fn query_project(
@@ -549,6 +849,7 @@ pub fn query_project(
         summary_lines,
         results,
         notes,
+        index_freshness: build_index_freshness(project, false),
     })
 }
 
@@ -632,6 +933,7 @@ pub fn neighbors_project(project: &ProjectRecord, entity: &str) -> AppResult<Nei
         readers,
         writers,
         callers,
+        index_freshness: build_index_freshness(project, false),
     })
 }
 
@@ -671,22 +973,335 @@ fn constant_fingerprint(map: &HashMap<String, String>) -> String {
         .join("\n")
 }
 
-fn load_constants(data_dir: &Path) -> Option<HashMap<String, String>> {
-    let path = data_dir.join("constants.json");
-    let contents = fs::read_to_string(&path).ok()?;
+pub fn project_constants_file(data_dir: &Path, project_id: Uuid) -> PathBuf {
+    data_dir.join(format!("constants-{project_id}.json"))
+}
+
+pub fn is_worktree_project_path(path: &str) -> bool {
+    path.split('/').any(|part| part == ".worktrees")
+}
+
+pub fn expected_baseline_branch(path: &str) -> Option<&'static str> {
+    if path.contains("/frontend/") {
+        Some("production")
+    } else if path.contains("/backend/") || path.contains("/pda/") {
+        Some("master")
+    } else {
+        None
+    }
+}
+
+pub fn infer_branch_name(path: &str) -> Option<String> {
+    git_output(Path::new(path), &["branch", "--show-current"])
+        .filter(|value| !value.trim().is_empty())
+}
+
+pub fn infer_overlay_base_project_id(
+    overlay: &ProjectRecord,
+    projects: &[ProjectRecord],
+) -> Option<Uuid> {
+    let baseline_root = baseline_root_for_worktree(&overlay.root_path)?;
+    let baseline_branch = overlay
+        .baseline_branch
+        .as_deref()
+        .or_else(|| expected_baseline_branch(&baseline_root));
+    projects
+        .iter()
+        .find(|project| {
+            project.kind == ProjectKind::Baseline
+                && project.root_path == baseline_root
+                && project.indexed
+                && baseline_branch
+                    .is_none_or(|branch| project.baseline_branch.as_deref() == Some(branch))
+        })
+        .map(|project| project.id)
+}
+
+pub struct BranchViewResolution {
+    pub projects: Vec<ProjectRecord>,
+    pub materialized_projects: Vec<ProjectRecord>,
+    pub auto_refreshed: bool,
+}
+
+pub fn resolve_branch_view(
+    mut projects: Vec<ProjectRecord>,
+    data_dir: &Path,
+    branch_name: &str,
+    enable_write_actions: bool,
+) -> AppResult<BranchViewResolution> {
+    let branch_name = normalize_branch_name(branch_name);
+    if branch_name.is_empty() {
+        return Err(AppError::bad_request("branch_name is required"));
+    }
+
+    let baseline_indexes = projects
+        .iter()
+        .enumerate()
+        .filter(|(_, project)| project.kind == ProjectKind::Baseline)
+        .filter(|(_, project)| project.baseline_branch.is_some())
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+
+    if baseline_indexes.is_empty() {
+        return Err(AppError::bad_request(
+            "no production baseline indexes exist; add and scan app baselines first",
+        ));
+    }
+
+    let mut materialized_projects = Vec::new();
+    let mut auto_refreshed = false;
+
+    for baseline_index in baseline_indexes {
+        let baseline = projects[baseline_index].clone();
+        if !baseline.indexed {
+            return Err(AppError::bad_request(format!(
+                "baseline '{}' is not indexed; scan the production branch first",
+                baseline.name
+            )));
+        }
+
+        if !branch_exists(&baseline.root_path, &branch_name) {
+            materialized_projects.push(baseline);
+            continue;
+        }
+
+        let overlay_index = projects.iter().position(|project| {
+            project.kind == ProjectKind::BranchOverlay
+                && project.base_project_id == Some(baseline.id)
+                && project.branch_name.as_deref() == Some(branch_name.as_str())
+        });
+
+        let overlay = if let Some(index) = overlay_index {
+            projects[index].clone()
+        } else {
+            let root_path = worktree_for_branch(&baseline.root_path, &branch_name)
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    if enable_write_actions {
+                        ensure_managed_worktree(&baseline, &branch_name, data_dir)
+                    } else {
+                        Err(AppError::bad_request(format!(
+                            "branch '{branch_name}' exists for baseline '{}' but no worktree/overlay exists; enable CODE_MAP_ENABLE_WRITE_ACTIONS or add the worktree as a project",
+                            baseline.name
+                        )))
+                    }
+                })?;
+            let mut project =
+                ProjectRecord::new(format!("{} @ {}", baseline.name, branch_name), root_path);
+            project.kind = ProjectKind::BranchOverlay;
+            project.base_project_id = Some(baseline.id);
+            project.branch_name = Some(branch_name.clone());
+            project.baseline_branch = baseline.baseline_branch.clone();
+            project
+        };
+
+        let scanned = scan_branch_overlay(overlay, &baseline, data_dir, false)?;
+        match overlay_index {
+            Some(index) => projects[index] = scanned.clone(),
+            None => projects.push(scanned.clone()),
+        }
+        materialized_projects.push(materialize_project(&scanned, Some(&baseline)));
+        auto_refreshed = true;
+    }
+
+    Ok(BranchViewResolution {
+        projects,
+        materialized_projects,
+        auto_refreshed,
+    })
+}
+
+fn normalize_branch_name(branch_name: &str) -> String {
+    branch_name
+        .trim()
+        .trim_start_matches("refs/heads/")
+        .trim_start_matches("origin/")
+        .to_string()
+}
+
+pub fn branch_exists(repo_root: &str, branch_name: &str) -> bool {
+    branch_checkout_ref(repo_root, branch_name).is_some()
+        || worktree_for_branch(repo_root, branch_name).is_some()
+}
+
+fn branch_checkout_ref(repo_root: &str, branch_name: &str) -> Option<String> {
+    let branch_name = normalize_branch_name(branch_name);
+    if git_output(
+        Path::new(repo_root),
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch_name}"),
+        ],
+    )
+    .is_some()
+    {
+        return Some(branch_name);
+    }
+    if git_output(
+        Path::new(repo_root),
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/remotes/origin/{branch_name}"),
+        ],
+    )
+    .is_some()
+    {
+        return Some(format!("origin/{branch_name}"));
+    }
+    None
+}
+
+pub fn worktree_for_branch(repo_root: &str, branch_name: &str) -> Option<String> {
+    let branch_name = normalize_branch_name(branch_name);
+    let output = git_output(Path::new(repo_root), &["worktree", "list", "--porcelain"])?;
+    let mut current_path: Option<String> = None;
+    for line in output.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = Some(path.to_string());
+        } else if let Some(branch) = line.strip_prefix("branch ") {
+            let normalized = normalize_branch_name(branch);
+            if normalized == branch_name {
+                return current_path.clone();
+            }
+        }
+    }
+    None
+}
+
+fn ensure_managed_worktree(
+    baseline: &ProjectRecord,
+    branch_name: &str,
+    data_dir: &Path,
+) -> AppResult<String> {
+    if let Some(path) = worktree_for_branch(&baseline.root_path, branch_name) {
+        return Ok(path);
+    }
+
+    let branch_name = normalize_branch_name(branch_name);
+    let worktree_path = data_dir
+        .join("worktrees")
+        .join(baseline.id.to_string())
+        .join(safe_branch_dir(&branch_name));
+    if worktree_path.is_dir() {
+        return Ok(worktree_path.display().to_string());
+    }
+
+    if let Some(parent) = worktree_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| AppError::internal(error.to_string()))?;
+    }
+
+    let local_exists = git_output(
+        Path::new(&baseline.root_path),
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{branch_name}"),
+        ],
+    )
+    .is_some();
+    let mut command = Command::new("git");
+    command.current_dir(&baseline.root_path);
+    if local_exists {
+        command.args(["worktree", "add"]);
+        command.arg(&worktree_path);
+        command.arg(&branch_name);
+    } else {
+        command.args(["worktree", "add", "-b"]);
+        command.arg(&branch_name);
+        command.arg(&worktree_path);
+        command.arg(format!("origin/{branch_name}"));
+    }
+
+    let output = command
+        .output()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    if !output.status.success() {
+        return Err(AppError::internal(format!(
+            "failed to create managed worktree for branch '{branch_name}': {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    Ok(worktree_path.display().to_string())
+}
+
+fn safe_branch_dir(branch_name: &str) -> String {
+    let sanitized = branch_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let prefix = hash_text(branch_name).chars().take(8).collect::<String>();
+    format!(
+        "{prefix}-{}",
+        sanitized.chars().take(80).collect::<String>()
+    )
+}
+
+fn baseline_root_for_worktree(path: &str) -> Option<String> {
+    let marker = "/.worktrees/";
+    path.find(marker).map(|index| path[..index].to_string())
+}
+
+pub fn is_overlay_expired(project: &ProjectRecord) -> bool {
+    if project.kind != ProjectKind::BranchOverlay {
+        return false;
+    }
+    let now = now_unix();
+    let last_used = project
+        .last_used_at
+        .as_deref()
+        .or(project.last_indexed_at.as_deref())
+        .or(Some(project.created_at.as_str()))
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(now);
+    now.saturating_sub(last_used) > 30 * 24 * 60 * 60
+}
+
+pub fn is_branch_missing(project: &ProjectRecord) -> bool {
+    if project.kind != ProjectKind::BranchOverlay {
+        return false;
+    }
+    let Some(branch_name) = project.branch_name.as_deref() else {
+        return false;
+    };
+    let root = Path::new(&project.root_path);
+    if !root.is_dir() {
+        return true;
+    }
+    git_output(root, &["rev-parse", "--verify", branch_name]).is_none()
+        && git_output(
+            root,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{branch_name}"),
+            ],
+        )
+        .is_none()
+}
+
+fn load_constants(path: &Path) -> Option<HashMap<String, String>> {
+    let contents = fs::read_to_string(path).ok()?;
     serde_json::from_str(&contents).ok()
 }
 
-fn save_constants(data_dir: &Path, map: &HashMap<String, String>) -> AppResult<()> {
-    if let Some(parent) = data_dir.parent() {
+fn save_constants(path: &Path, map: &HashMap<String, String>) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| AppError::internal(error.to_string()))?;
     }
-    let tmp = data_dir.join("constants.json.tmp");
+    let tmp = path.with_extension("json.tmp");
     let body =
         serde_json::to_string_pretty(map).map_err(|error| AppError::internal(error.to_string()))?;
     fs::write(&tmp, body).map_err(|error| AppError::internal(error.to_string()))?;
-    fs::rename(&tmp, data_dir.join("constants.json"))
-        .map_err(|error| AppError::internal(error.to_string()))?;
+    fs::rename(&tmp, path).map_err(|error| AppError::internal(error.to_string()))?;
     Ok(())
 }
 
@@ -889,6 +1504,7 @@ fn file_record(
     let mut line_count = None;
     let mut indexed_content = false;
     let mut contents = None;
+    let mut content_hash = None;
 
     if size_bytes <= MAX_QUERY_FILE_BYTES
         && is_probably_text_path(path)
@@ -896,6 +1512,7 @@ fn file_record(
     {
         line_count = Some(text.lines().count() as u64);
         indexed_content = true;
+        content_hash = Some(hash_text(&text));
         contents = Some(text);
     }
 
@@ -909,6 +1526,7 @@ fn file_record(
             mtime,
             line_count,
             indexed_content,
+            content_hash,
         },
         contents,
     )))
@@ -1692,6 +2310,10 @@ fn should_skip_repo_dir(name: &str) -> bool {
 }
 
 fn should_skip_file(name: &str, path: &Path) -> bool {
+    if name == ".git" {
+        return true;
+    }
+
     if name == ".env" || name.starts_with(".env.") {
         return true;
     }
@@ -1799,6 +2421,12 @@ fn language_for_path(path: &Path) -> Option<&'static str> {
         "sh" | "bash" | "zsh" | "fish" => Some("Shell"),
         _ => None,
     }
+}
+
+fn hash_text(value: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn extract_terms(query: &str) -> Vec<String> {
@@ -1959,6 +2587,138 @@ fn build_summary_lines(
     lines
 }
 
+fn build_index_freshness(project: &ProjectRecord, auto_refreshed: bool) -> IndexFreshness {
+    let root = Path::new(&project.root_path);
+    let root_exists = root.is_dir();
+    let current_git = if root_exists {
+        git_snapshot_for_root(root)
+    } else {
+        None
+    };
+    let index_stale = project.indexed
+        && (!root_exists
+            || match (&current_git, &project.last_scanned_git) {
+                (Some(current), Some(scanned)) => current.fingerprint != scanned.fingerprint,
+                (Some(_), None) => true,
+                _ => false,
+            });
+    let warning = if !root_exists {
+        Some("Project root no longer exists; remove this index or restore the worktree before trusting results.".to_string())
+    } else if index_stale {
+        Some("Index is older than the current Git worktree; run scan or enable auto refresh before trusting results.".to_string())
+    } else {
+        None
+    };
+
+    IndexFreshness {
+        current_git,
+        last_scanned_git: project.last_scanned_git.clone(),
+        index_stale,
+        auto_refreshed,
+        warning,
+    }
+}
+
+fn git_snapshot_for_root(root: &Path) -> Option<GitSnapshot> {
+    let scan_roots = discover_scan_roots(root).ok()?;
+    let mut repo_states = Vec::new();
+    for scan_root in scan_roots
+        .iter()
+        .filter(|scan_root| scan_root.repo.is_some())
+    {
+        if let Some(state) =
+            git_repo_state(&scan_root.path, scan_root.repo.as_deref().unwrap_or(""))
+        {
+            repo_states.push(state);
+        }
+    }
+
+    if repo_states.is_empty() {
+        return None;
+    }
+
+    repo_states.sort_by(|left, right| left.repo.cmp(&right.repo));
+    let repo_count = repo_states.len() as u64;
+    let dirty_repo_count = repo_states.iter().filter(|state| state.dirty).count() as u64;
+    let branches = repo_states
+        .iter()
+        .filter_map(|state| state.branch.as_deref())
+        .collect::<Vec<_>>();
+    let heads = repo_states
+        .iter()
+        .filter_map(|state| state.head.as_deref())
+        .collect::<Vec<_>>();
+    let branch = common_value(&branches).map(str::to_string);
+    let head = common_value(&heads).map(str::to_string);
+    let fingerprint = Some(git_fingerprint(&repo_states));
+
+    Some(GitSnapshot {
+        branch,
+        head,
+        dirty: dirty_repo_count > 0,
+        repo_count,
+        dirty_repo_count,
+        fingerprint,
+    })
+}
+
+struct GitRepoState {
+    repo: String,
+    branch: Option<String>,
+    head: Option<String>,
+    dirty: bool,
+    dirty_signature: String,
+}
+
+fn git_repo_state(repo_root: &Path, repo: &str) -> Option<GitRepoState> {
+    let branch = git_output(repo_root, &["branch", "--show-current"])
+        .filter(|value| !value.trim().is_empty());
+    let head =
+        git_output(repo_root, &["rev-parse", "HEAD"]).filter(|value| !value.trim().is_empty());
+    let dirty_signature = git_output(repo_root, &["status", "--porcelain=v1"]).unwrap_or_default();
+    let dirty = !dirty_signature.trim().is_empty();
+
+    Some(GitRepoState {
+        repo: repo.to_string(),
+        branch,
+        head,
+        dirty,
+        dirty_signature,
+    })
+}
+
+fn git_fingerprint(repo_states: &[GitRepoState]) -> String {
+    let mut hasher = DefaultHasher::new();
+    for state in repo_states {
+        state.repo.hash(&mut hasher);
+        state.branch.hash(&mut hasher);
+        state.head.hash(&mut hasher);
+        state.dirty_signature.hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn git_output(repo_root: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn common_value<'a>(values: &[&'a str]) -> Option<&'a str> {
+    let first = values.first()?;
+    if values.iter().all(|value| value == first) {
+        Some(first)
+    } else {
+        None
+    }
+}
+
 fn display_result_path(result: &QueryResult) -> String {
     match &result.repo {
         Some(repo) if !repo.is_empty() => {
@@ -2003,10 +2763,13 @@ fn compact_line(line: &str) -> String {
     }
 }
 
-fn now_unix_string() -> String {
+fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-        .to_string()
+}
+
+pub fn now_unix_string() -> String {
+    now_unix().to_string()
 }

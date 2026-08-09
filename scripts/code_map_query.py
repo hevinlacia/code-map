@@ -59,7 +59,9 @@ def http_get(base: str, path: str) -> dict:
         sys.exit(1)
 
 
-def resolve_project(base: str, explicit: str | None) -> str:
+def resolve_project(base: str, explicit: str | None, branch_name: str | None = None) -> str | None:
+    if branch_name:
+        return None
     if explicit:
         return explicit
     settings = http_get(base, "/api/settings")
@@ -109,6 +111,7 @@ def compact_query(resp: dict) -> dict:
     return {
         "project": resp.get("project_name"),
         "query": resp.get("query"),
+        "branch_name": resp.get("project_name", "").removeprefix("branch:") if str(resp.get("project_name", "")).startswith("branch:") else None,
         "count": resp.get("result_count"),
         "notes": [
             {
@@ -126,6 +129,7 @@ def compact_neighbors(resp: dict) -> dict:
     return {
         "project": resp.get("project_name"),
         "entity": resp.get("entity"),
+        "branch_name": resp.get("project_name", "").removeprefix("branch:") if str(resp.get("project_name", "")).startswith("branch:") else None,
         "definitions": resp.get("definitions", []),
         "producers": resp.get("producers", []),
         "consumers": resp.get("consumers", []),
@@ -183,16 +187,16 @@ def print_neighbors_human(resp: dict) -> None:
 
 def cmd_query(args: argparse.Namespace) -> int:
     base = args.base_url
-    project_id = resolve_project(base, args.project_id)
-    resp = http_json(
-        base,
-        "/api/query",
-        {
-            "project_id": project_id,
-            "query": args.term,
-            "max_results": args.max_results,
-        },
-    )
+    project_id = resolve_project(base, args.project_id, args.branch_name)
+    payload = {
+        "query": args.term,
+        "max_results": args.max_results,
+    }
+    if args.branch_name:
+        payload["branch_name"] = args.branch_name
+    else:
+        payload["project_id"] = project_id
+    resp = http_json(base, "/api/query", payload)
     if args.json:
         print(json.dumps(compact_query(resp), ensure_ascii=False))
     else:
@@ -202,12 +206,13 @@ def cmd_query(args: argparse.Namespace) -> int:
 
 def cmd_neighbors(args: argparse.Namespace) -> int:
     base = args.base_url
-    project_id = resolve_project(base, args.project_id)
-    resp = http_json(
-        base,
-        "/api/neighbors",
-        {"project_id": project_id, "entity": args.entity},
-    )
+    project_id = resolve_project(base, args.project_id, args.branch_name)
+    payload = {"entity": args.entity}
+    if args.branch_name:
+        payload["branch_name"] = args.branch_name
+    else:
+        payload["project_id"] = project_id
+    resp = http_json(base, "/api/neighbors", payload)
     if args.json:
         print(json.dumps(compact_neighbors(resp), ensure_ascii=False))
     else:
@@ -226,6 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--project-id",
         default=os.environ.get("CODE_MAP_PROJECT_ID"),
         help="project id (default: active project or CODE_MAP_PROJECT_ID)",
+    )
+    common.add_argument(
+        "--branch-name",
+        default=os.environ.get("CODE_MAP_BRANCH_NAME"),
+        help="requirement branch name; builds a virtual view from production baselines plus matching branch overlays",
     )
     common.add_argument("--json", action="store_true", help="compact JSON for agent ingestion")
 

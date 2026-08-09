@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   createProject,
+  deleteProject,
   getSettings,
   getStatus,
   listProjects,
@@ -29,6 +30,7 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [scanningProjectId, setScanningProjectId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [querying, setQuerying] = useState(false);
 
   async function refresh() {
@@ -103,12 +105,30 @@ export function App() {
     }
   }
 
-  async function handleQuery(query: string, maxResults: number) {
+  async function handleDeleteProject(projectId: string) {
+    try {
+      setDeletingProjectId(projectId);
+      setError(null);
+      await deleteProject(projectId);
+      if (selectedProjectId === projectId) {
+        setSelectedProjectId(null);
+        setQueryResult(null);
+      }
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to remove project index');
+    } finally {
+      setDeletingProjectId(null);
+    }
+  }
+
+  async function handleQuery(query: string, maxResults: number, branchName: string | null) {
     try {
       setQuerying(true);
       setError(null);
       const result = await queryCodeMap({
-        project_id: selectedProjectId,
+        project_id: branchName ? null : selectedProjectId,
+        branch_name: branchName,
         query,
         max_results: maxResults,
       });
@@ -174,8 +194,10 @@ export function App() {
         projects={projects}
         selectedProjectId={selectedProjectId}
         scanningProjectId={scanningProjectId}
+        deletingProjectId={deletingProjectId}
         onSelect={handleSelectProject}
         onScan={(projectId) => void handleScanProject(projectId)}
+        onDelete={(projectId) => void handleDeleteProject(projectId)}
       />
 
       <QueryPanel

@@ -11,7 +11,7 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<RuntimeState> {
 
 pub async fn put_settings(
     State(state): State<AppState>,
-    Json(mut payload): Json<RuntimeState>,
+    Json(payload): Json<RuntimeState>,
 ) -> AppResult<Json<RuntimeState>> {
     if payload.query_token_budget < 200 {
         return Err(crate::error::AppError::bad_request(
@@ -23,10 +23,6 @@ pub async fn put_settings(
         return Err(crate::error::AppError::bad_request(
             "max_summary_lines must be between 1 and 500",
         ));
-    }
-
-    if !state.config.enable_write_actions {
-        payload.auto_refresh_enabled = false;
     }
 
     Ok(Json(state.replace_runtime(payload)?))

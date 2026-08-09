@@ -7,7 +7,7 @@ type QueryPanelProps = {
   querying: boolean;
   queryResult: QueryResponse | null;
   onSelectProject: (projectId: string) => void;
-  onQuery: (query: string, maxResults: number) => Promise<void>;
+  onQuery: (query: string, maxResults: number, branchName: string | null) => Promise<void>;
 };
 
 export function QueryPanel({
@@ -19,12 +19,13 @@ export function QueryPanel({
   onQuery,
 }: QueryPanelProps) {
   const [query, setQuery] = useState('');
+  const [branchName, setBranchName] = useState('');
   const [maxResults, setMaxResults] = useState(12);
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onQuery(query, maxResults);
+    await onQuery(query, maxResults, branchName.trim() || null);
   }
 
   return (
@@ -63,6 +64,15 @@ export function QueryPanel({
           />
         </label>
 
+        <label className="query-input">
+          <span>Requirement branch</span>
+          <input
+            placeholder="hevin.yang/feature/WMS-1234-example"
+            value={branchName}
+            onChange={(event) => setBranchName(event.currentTarget.value)}
+          />
+        </label>
+
         <label className="narrow-input">
           <span>Results</span>
           <input
@@ -77,19 +87,29 @@ export function QueryPanel({
         <button
           className="primary"
           type="submit"
-          disabled={querying || !query.trim() || !selectedProject || !selectedProject.indexed}
+          disabled={
+            querying ||
+            !query.trim() ||
+            (!branchName.trim() && (!selectedProject || !selectedProject.indexed))
+          }
         >
           {querying ? 'Querying…' : 'Query'}
         </button>
       </form>
 
-      {selectedProject && !selectedProject.indexed && (
+      {selectedProject && !selectedProject.indexed && !branchName.trim() && (
         <div className="hint">Scan this project before querying.</div>
       )}
 
       {queryResult && (
         <div className="query-results">
           <div className="summary-box">
+            <div className={queryResult.index_freshness.index_stale ? 'freshness stale' : 'freshness ok'}>
+              <strong>
+                {queryResult.index_freshness.index_stale ? 'Index stale' : 'Index fresh'}
+              </strong>
+              <span>{formatFreshness(queryResult.index_freshness)}</span>
+            </div>
             {queryResult.summary_lines.map((line) => (
               <p key={line}>{line}</p>
             ))}
@@ -143,6 +163,21 @@ export function QueryPanel({
       )}
     </section>
   );
+}
+
+function formatFreshness(freshness: QueryResponse['index_freshness']): string {
+  const current = freshness.current_git;
+  const scanned = freshness.last_scanned_git;
+  const refreshed = freshness.auto_refreshed ? 'auto-refreshed before query' : 'not auto-refreshed';
+  if (!current) {
+    return `No Git metadata detected · ${refreshed}`;
+  }
+
+  const branch = current.branch ? `branch ${current.branch}` : 'mixed branches';
+  const head = current.head ? `head ${current.head.slice(0, 8)}` : 'mixed heads';
+  const dirty = current.dirty ? `${current.dirty_repo_count} dirty repo${current.dirty_repo_count === 1 ? '' : 's'}` : 'clean';
+  const indexed = scanned?.head ? `indexed ${scanned.head.slice(0, 8)}` : 'no scanned head';
+  return `${branch} · ${head} · ${dirty} · ${indexed} · ${refreshed}`;
 }
 
 function formatResultPath(result: { repo: string | null; repo_relative_path: string; relative_path: string }): string {
