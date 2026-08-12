@@ -1,0 +1,23 @@
+backend/src/features/projects/mod.rs
+  4d09da68917ee753 2,18-23,429-435,443,1424,1432,1462-1464,1472,1479-1481,1572-1576,1977-1978,2002-2003,2787-2829,2849-2904
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "16a96b2fb0fe2de7bc59c1e0d5334e1428e0f548",
+  "prompts": {
+    "4d09da68917ee753": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019ff3fb-1abf-7e9a-8f4a-51abf2e6bf66",
+        "model": "deepseek-v4-flash-auto"
+      },
+      "human_author": "hevinlacia",
+      "messages": [],
+      "total_additions": 80,
+      "total_deletions": 7,
+      "accepted_lines": 78,
+      "overriden_lines": 0
+    }
+  }
+}
