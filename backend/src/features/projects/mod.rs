@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -15,6 +15,12 @@ use crate::features::notes::NoteRecord;
 
 const MAX_INDEXED_FILES: usize = 80_000;
 const MAX_QUERY_FILE_BYTES: u64 = 768 * 1024;
+/// Lines longer than this are treated as generated/minified noise and skipped
+/// by the symbol extractor (e.g. a minified JS bundle is one giant line).
+const MAX_EXTRACT_LINE_CHARS: usize = 2_000;
+/// Symbol/relationship names are truncated to keep the index and query
+/// responses compact even if a pathological file slips through.
+const MAX_SYMBOL_NAME_CHARS: usize = 256;
 const MAX_SNIPPETS_PER_FILE: usize = 3;
 const DEFAULT_MAX_RESULTS: usize = 12;
 const MAX_SYMBOL_HITS_PER_FILE: usize = 8;
@@ -420,6 +426,13 @@ pub fn scan_project(
         if collected.len() >= MAX_INDEXED_FILES {
             break;
         }
+        // Respect the repo's .gitignore (via git, once per repo) so gitignored
+        // build artifacts / bundles (e.g. public/dist/…/*.js) are never indexed.
+        let ignored = if scan_root.repo.is_some() {
+            ignored_paths_for_root(&scan_root.path)
+        } else {
+            HashSet::new()
+        };
         scan_dir(
             &workspace_root,
             &scan_root.path,
@@ -427,6 +440,7 @@ pub fn scan_project(
             scan_root.repo.as_deref(),
             &old_cache,
             incremental,
+            &ignored,
             &mut collected,
         )?;
     }
@@ -1407,6 +1421,7 @@ fn discover_git_repos(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // private recursive helper; params bundle scan context
 fn scan_dir(
     workspace_root: &Path,
     repo_root: &Path,
@@ -1414,6 +1429,7 @@ fn scan_dir(
     repo: Option<&str>,
     old_cache: &HashMap<String, OldFile>,
     incremental: bool,
+    ignored: &HashSet<String>,
     collected: &mut Vec<CollectedFile>,
 ) -> AppResult<()> {
     if collected.len() >= MAX_INDEXED_FILES {
@@ -1443,6 +1459,9 @@ fn scan_dir(
             if should_skip_repo_dir(&name) {
                 continue;
             }
+            if is_ignored_path(repo_root, &path, ignored) {
+                continue;
+            }
             scan_dir(
                 workspace_root,
                 repo_root,
@@ -1450,10 +1469,14 @@ fn scan_dir(
                 repo,
                 old_cache,
                 incremental,
+                ignored,
                 collected,
             )?;
         } else if file_type.is_file() {
             if should_skip_file(&name, &path) {
+                continue;
+            }
+            if is_ignored_path(repo_root, &path, ignored) {
                 continue;
             }
             if let Some((record, contents)) = file_record(
@@ -1544,6 +1567,11 @@ fn extract_records(
         let line_no = (line_index + 1) as u64;
         let trimmed = line.trim();
         if trimmed.is_empty() {
+            continue;
+        }
+        // Skip generated/minified single-line files: heuristics on a giant
+        // line only produce garbage symbols that bloat the index and responses.
+        if trimmed.chars().count() > MAX_EXTRACT_LINE_CHARS {
             continue;
         }
         let lower = trimmed.to_lowercase();
@@ -1946,7 +1974,8 @@ fn push_symbol(
     detail: &str,
     line: u64,
 ) {
-    let name = name.into();
+    let name: String = name.into();
+    let name = compact_name(&name);
     if name.trim().is_empty() {
         return;
     }
@@ -1970,7 +1999,8 @@ fn push_relationship(
     detail: &str,
     line: u64,
 ) {
-    let to = to.into();
+    let to: String = to.into();
+    let to = compact_name(&to);
     if to.trim().is_empty() {
         return;
     }
@@ -2754,6 +2784,49 @@ fn dedupe_strings(values: &mut Vec<String>) {
     });
 }
 
+/// Truncate symbol/relationship names so the index and query responses stay
+/// compact even if a pathological file (e.g. a committed minified bundle)
+/// slips through the other guards.
+fn compact_name(name: &str) -> String {
+    let count = name.chars().count();
+    if count > MAX_SYMBOL_NAME_CHARS {
+        let mut compact: String = name
+            .chars()
+            .take(MAX_SYMBOL_NAME_CHARS.saturating_sub(3))
+            .collect();
+        compact.push_str("...");
+        compact
+    } else {
+        name.to_string()
+    }
+}
+
+/// Collect repo-relative paths that are gitignored via `git ls-files -o -i`
+/// (respects .gitignore, .git/info/exclude and core.excludesFile). Empty when
+/// the root is not a git repo or git is unavailable.
+fn ignored_paths_for_root(repo_root: &Path) -> HashSet<String> {
+    let mut ignored = HashSet::new();
+    if let Some(output) = git_output(repo_root, &["ls-files", "-o", "-i", "--exclude-standard"]) {
+        for line in output.lines() {
+            let value = line.trim();
+            if !value.is_empty() {
+                ignored.insert(value.to_string());
+            }
+        }
+    }
+    ignored
+}
+
+/// True when `path` (relative to `repo_root`) is present in the ignored set.
+fn is_ignored_path(repo_root: &Path, path: &Path, ignored: &HashSet<String>) -> bool {
+    if ignored.is_empty() {
+        return false;
+    }
+    path_label(repo_root, path)
+        .map(|relative| ignored.contains(&relative))
+        .unwrap_or(false)
+}
+
 fn compact_line(line: &str) -> String {
     let compact = line.split_whitespace().collect::<Vec<_>>().join(" ");
     if compact.chars().count() > 240 {
@@ -2772,4 +2845,69 @@ fn now_unix() -> u64 {
 
 pub fn now_unix_string() -> String {
     now_unix().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_record(relative_path: &str, language: &str) -> FileRecord {
+        FileRecord {
+            relative_path: relative_path.to_string(),
+            repo: None,
+            repo_relative_path: relative_path.to_string(),
+            language: Some(language.to_string()),
+            size_bytes: 0,
+            mtime: 0,
+            line_count: None,
+            indexed_content: true,
+            content_hash: None,
+        }
+    }
+
+    #[test]
+    fn compact_name_keeps_short_names_untouched() {
+        assert_eq!(compact_name("shipment_header"), "shipment_header");
+        assert_eq!(
+            compact_name("SHIPMENT_STATUS_TOPIC"),
+            "SHIPMENT_STATUS_TOPIC"
+        );
+    }
+
+    #[test]
+    fn compact_name_truncates_pathological_names() {
+        let long = "x".repeat(10_000);
+        let out = compact_name(&long);
+        assert!(out.len() <= MAX_SYMBOL_NAME_CHARS);
+        assert!(out.ends_with("..."));
+    }
+
+    #[test]
+    fn extract_records_skips_minified_single_line() {
+        // A minified bundle is one giant line with MQ-ish substrings; the
+        // extractor must not emit garbage symbols for it.
+        let mut line = String::from("function a(){const topic=\"");
+        line.push_str(&"y".repeat(MAX_EXTRACT_LINE_CHARS + 500));
+        line.push_str("\"}");
+        let file = file_record("assets/bundle.min.js", "JavaScript");
+        let (symbols, relationships) = extract_records(&file, &line, &HashMap::new());
+        assert!(symbols.is_empty());
+        assert!(relationships.is_empty());
+    }
+
+    #[test]
+    fn extract_records_still_extracts_from_normal_lines() {
+        let file = file_record("src/App.tsx", "TypeScript");
+        let contents = "@GetMapping(\"/orders\")\n".to_owned()
+            + "public class OrderController {\n"
+            + "    private static final String TOPIC = \"order_status_topic\";\n";
+        let (symbols, _) = extract_records(&file, &contents, &HashMap::new());
+        assert!(symbols.iter().any(|s| s.kind == "controller_route"));
+        assert!(symbols.iter().any(|s| s.kind == "class"));
+        assert!(symbols.iter().any(|s| s.kind == "mq_topic"));
+        // Names stay bounded even when extracted from the same line batch.
+        for symbol in &symbols {
+            assert!(symbol.name.len() <= MAX_SYMBOL_NAME_CHARS);
+        }
+    }
 }
