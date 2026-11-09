@@ -99,3 +99,15 @@ via `GET /api/services`. Contract details live in the agent-panel skill:
 build machine. Cross-distro or ARM nodes need their own build uploaded as a
 separate version. Point `CODE_MAP_FRONTEND_DIR` at the unpacked `frontend/`
 inside the install dir.
+
+## Canonical unit now points at the hub artifact
+
+As of REQ-274 the version-controlled `deploy/code-map.service` runs the binary from
+`~/.local/share/panel-services/code-map/current` (the panel worker installs hub
+artifacts there and a `current` symlink selects the active version) instead of
+`backend/target/release/`. Benefits: the running service no longer depends on the
+git checkout, and switching versions is a symlink flip.
+
+Keep in mind when editing the unit: `%h` specifiers are expanded by systemd, so
+`Environment=CODE_MAP_FRONTEND_DIR=%h/...` works; the `ExecStart` keeps `/bin/sh -c`
+to expand `$WMS_WORKSPACE_ROOT` from `paths.env`.

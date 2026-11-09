@@ -5,14 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/hevin/Developer/tools/code-map
+# REQ-274:运行来自 hub 分发的产物(hub 安装到 panel-services,current 指向当前版本),
+# 不再依赖 code-map git 仓库;版本更新只需切 current 符号链接。
+WorkingDirectory=%h/.local/share/panel-services/code-map/current
 Environment=CODE_MAP_HOST=127.0.0.1
 Environment=CODE_MAP_PORT=18765
-Environment=CODE_MAP_FRONTEND_DIR=/home/hevin/Developer/tools/code-map/frontend/dist
+Environment=CODE_MAP_FRONTEND_DIR=%h/.local/share/panel-services/code-map/current/frontend
 Environment=CODE_MAP_DATA_DIR=/home/hevin/.local/share/code-map
-Environment=CODE_MAP_DEFAULT_WORKSPACE=/home/hevin/Developer/company/WMS
+# WMS 根由 paths.env 提供（devpath 生成）；sh -c 展开为 DEFAULT_WORKSPACE
+EnvironmentFile=%h/.agents/paths.env
 Environment=CODE_MAP_ENABLE_WRITE_ACTIONS=true
-ExecStart=/home/hevin/Developer/tools/code-map/backend/target/release/code-map-backend
+ExecStart=/bin/sh -c 'CODE_MAP_DEFAULT_WORKSPACE="$WMS_WORKSPACE_ROOT" exec %h/.local/share/panel-services/code-map/current/bin/code-map-backend'
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
