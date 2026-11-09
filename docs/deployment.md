@@ -68,3 +68,34 @@ curl -I http://127.0.0.1:18765/      # should return index.html
 
 - Runtime settings and project indexes are persisted under `CODE_MAP_DATA_DIR`.
 - Logs go to journald (no separate log file), consistent with `sql-workbench`.
+
+## Hub artifact distribution (REQ-274)
+
+New nodes can run code-map **without cloning this repo**: hub holds the
+packaged artifact and the panel worker installs it on demand.
+
+```bash
+npm run release              # build frontend dist + release backend
+deploy/package.sh            # → dist/code-map-<git-short>.tar.gz (+ upload command)
+```
+
+Package layout:
+
+```
+code-map-<ver>/
+  bin/code-map-backend    # platform-bound binary (x86_64-unknown-linux-gnu)
+  frontend/               # Vite build output (dist)
+  install.env.example     # runtime env template
+```
+
+Upload with `kind=binary` (entry goes in the **query string**, URL-encoded —
+`--data-urlencode` would corrupt the tar.gz body). Then declare `artifact` in the
+node's service manifest; the worker downloads, verifies sha256, unpacks to
+`~/.local/share/panel-services/code-map/<ver>/` and reports `artifactVersion`
+via `GET /api/services`. Contract details live in the agent-panel skill:
+`.agents/skills/agent-panel/references/workers-api.md` → 服务产物分发.
+
+**Platform note:** the binary only runs on the same architecture/libc as the
+build machine. Cross-distro or ARM nodes need their own build uploaded as a
+separate version. Point `CODE_MAP_FRONTEND_DIR` at the unpacked `frontend/`
+inside the install dir.
