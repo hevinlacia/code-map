@@ -10,3 +10,6 @@ frontend/node_modules/.tmp
 data
 tmp
 .DS_Store
+
+# AGENTS.md 收归 Agent Panel 规范树（hub agentsmd 条目），仓库不再管理
+AGENTS.md
